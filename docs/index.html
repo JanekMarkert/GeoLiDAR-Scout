@@ -1,228 +1,518 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GeoLiDAR Scout – Live Demo</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GeoLiDAR Scout</title>
 
-  <!-- MapLibre GL JS (Open Source, kein Token nötig) -->
-  <link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
-
-  <!-- deck.gl standalone build -->
+  <!-- deck.gl (3D OrbitView + PointCloud) -->
   <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
+  <!-- Leaflet (Map View, no token) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #0d1117; color: #e6edf3; }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    :root {
+      --bg:      #0d1117;
+      --surface: rgba(13,17,23,0.92);
+      --border:  #30363d;
+      --blue:    #58a6ff;
+      --green:   #3fb950;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --danger:  #f85149;
+    }
+    html, body { width:100%; height:100%; background:var(--bg); color:var(--text);
+                 font-family:'Helvetica Neue', Arial, sans-serif; overflow:hidden; }
 
-    #map { width: 100vw; height: 100vh; }
+    /* ── Layout ────────────────────────────────────────────────────── */
+    #app { display:flex; height:100vh; }
 
-    /* ── HUD overlay ─────────────────────────────────────── */
-    #hud {
-      position: absolute; top: 16px; left: 16px; z-index: 10;
-      display: flex; flex-direction: column; gap: 10px;
-      max-width: 320px;
+    #sidebar {
+      width: 280px; flex-shrink:0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      display:flex; flex-direction:column; gap:0;
+      overflow-y:auto; z-index:10;
     }
 
-    .card {
-      background: rgba(13, 17, 23, 0.88);
-      border: 1px solid #30363d;
-      border-radius: 10px;
-      padding: 14px 16px;
-      backdrop-filter: blur(8px);
+    #main { flex:1; position:relative; overflow:hidden; }
+
+    /* ── Sidebar sections ───────────────────────────────────────────── */
+    .section {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-title {
+      font-size:10px; font-weight:700; letter-spacing:.1em;
+      color:var(--muted); text-transform:uppercase; margin-bottom:12px;
     }
 
-    h1 { font-size: 15px; font-weight: 700; color: #58a6ff; margin-bottom: 2px; }
-    .subtitle { font-size: 11px; color: #8b949e; }
+    /* Header */
+    #header { padding:16px; border-bottom:1px solid var(--border); }
+    #header h1 { font-size:15px; font-weight:700; color:var(--blue); }
+    #header p  { font-size:10px; color:var(--muted); margin-top:2px; }
 
-    label { font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px; }
-    select, input[type=range] { width: 100%; }
+    /* ── Tabs ───────────────────────────────────────────────────────── */
+    #tabs { display:flex; gap:4px; padding:12px 16px;
+            border-bottom:1px solid var(--border); background:var(--surface); }
+    .tab {
+      flex:1; padding:7px 0; font-size:11px; font-weight:600; cursor:pointer;
+      border:1px solid var(--border); border-radius:6px;
+      background:transparent; color:var(--muted);
+      transition: all .15s;
+    }
+    .tab.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+    .tab:hover:not(.active) { color:var(--text); border-color:#8b949e; }
 
+    /* ── Controls ───────────────────────────────────────────────────── */
     select {
-      background: #161b22; color: #e6edf3;
-      border: 1px solid #30363d; border-radius: 6px;
-      padding: 6px 8px; font-size: 12px; cursor: pointer;
+      width:100%; padding:7px 8px; background:#161b22;
+      border:1px solid var(--border); border-radius:6px;
+      color:var(--text); font-size:12px; cursor:pointer;
     }
+    select:focus { outline:none; border-color:var(--blue); }
 
-    input[type=range] { accent-color: #58a6ff; }
+    .slider-row { margin-bottom:10px; }
+    .slider-row label { font-size:11px; color:var(--muted);
+                        display:flex; justify-content:space-between; margin-bottom:4px; }
+    .slider-row label span { color:var(--blue); font-weight:600; }
+    input[type=range] { width:100%; accent-color:var(--blue); }
 
     .btn {
-      width: 100%; padding: 8px;
-      background: #1f6feb; color: #fff;
-      border: none; border-radius: 6px;
-      font-size: 12px; font-weight: 600; cursor: pointer;
-      transition: background 0.15s;
+      width:100%; padding:8px; border:none; border-radius:6px;
+      font-size:12px; font-weight:600; cursor:pointer; transition:background .15s;
     }
-    .btn:hover { background: #388bfd; }
-    .btn.secondary { background: #21262d; }
-    .btn.secondary:hover { background: #30363d; }
+    .btn-primary { background:var(--blue); color:#fff; }
+    .btn-primary:hover { background:#79b8ff; }
+    .btn-secondary { background:#21262d; color:var(--text); border:1px solid var(--border); }
+    .btn-secondary:hover { background:#30363d; }
+    .btn-icon { display:flex; align-items:center; justify-content:center; gap:6px; }
 
-    #stats {
-      font-size: 11px; color: #8b949e; line-height: 1.7;
+    /* ── Stats ──────────────────────────────────────────────────────── */
+    #stats { font-size:11px; color:var(--muted); line-height:1.9; }
+    #stats b { color:var(--text); font-weight:600; }
+    #stats .empty { color:var(--muted); font-style:italic; }
+    .badge {
+      display:inline-block; padding:2px 8px; border-radius:20px;
+      font-size:10px; font-weight:700;
     }
-    #stats span { color: #58a6ff; font-weight: 600; }
+    .badge-green { background:rgba(63,185,80,.15); color:var(--green); }
+    .badge-blue  { background:rgba(88,166,255,.15); color:var(--blue); }
 
-    #legend {
-      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    /* ── Legend ─────────────────────────────────────────────────────── */
+    #legend { display:flex; flex-wrap:wrap; gap:8px; }
+    .leg { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); }
+    .dot { width:9px; height:9px; border-radius:50%; }
+
+    /* ── Hint ───────────────────────────────────────────────────────── */
+    #hint {
+      position:absolute; bottom:16px; right:16px; z-index:5;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; padding:8px 12px;
+      font-size:10px; color:var(--muted);
+      backdrop-filter:blur(8px);
+      pointer-events:none;
     }
-    .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    #hint span { color:var(--text); }
+
+    /* ── Views ──────────────────────────────────────────────────────── */
+    #view3d { width:100%; height:100%; position:relative; }
+    #deck-canvas { width:100%; height:100%; display:block; }
+    #viewMap { width:100%; height:100%; display:none; }
+
+    /* ── Empty state ────────────────────────────────────────────────── */
+    #empty-state {
+      position:absolute; inset:0; display:flex;
+      flex-direction:column; align-items:center; justify-content:center;
+      color:var(--muted); gap:12px; pointer-events:none;
+    }
+    #empty-state svg { opacity:.25; }
+    #empty-state p { font-size:13px; }
+
+    /* Leaflet dark override */
+    .leaflet-container { background:#1a1f2e !important; }
+    .leaflet-tile { filter: brightness(.85) saturate(.7); }
   </style>
 </head>
 <body>
+<div id="app">
 
-<div id="map"></div>
-
-<!-- ── HUD ─────────────────────────────────────────────────────── -->
-<div id="hud">
-  <div class="card">
-    <h1>🛰 GeoLiDAR Scout</h1>
-    <div class="subtitle">iPhone 14 Pro · ARKit LiDAR · BHT Berlin · SoSe 2026</div>
-  </div>
-
-  <div class="card">
-    <label>Scan auswählen</label>
-    <select id="scanSelect">
-      <option value="example-scans/bht_campus.geojson">BHT Campus – Fassade (Beispiel)</option>
-      <option value="example-scans/treppe.geojson">BHT – Treppenhaus innen (Beispiel)</option>
-    </select>
-    <br/><br/>
-    <button class="btn" onclick="loadScan()">Scan laden</button>
-  </div>
-
-  <div class="card">
-    <label>Punktgröße: <span id="sizeLabel">4</span> px</label>
-    <input type="range" id="pointSize" min="1" max="12" value="4"
-           oninput="document.getElementById('sizeLabel').textContent=this.value; updateLayer();" />
-    <br/><br/>
-    <label>Transparenz: <span id="opacLabel">90</span>%</label>
-    <input type="range" id="opacity" min="10" max="100" value="90"
-           oninput="document.getElementById('opacLabel').textContent=this.value; updateLayer();" />
-    <br/><br/>
-    <label>Karte</label>
-    <select id="mapStyle" onchange="changeStyle()">
-      <option value="https://tiles.openfreemap.org/styles/positron">Hell (OpenFreeMap)</option>
-      <option value="https://tiles.openfreemap.org/styles/dark-matter">Dunkel (OpenFreeMap)</option>
-      <option value="https://tiles.openfreemap.org/styles/liberty">Detailliert (OpenFreeMap)</option>
-    </select>
-  </div>
-
-  <div class="card" id="stats">
-    Noch kein Scan geladen.<br/>
-    Wähle oben einen Scan aus.
-  </div>
-
-  <div class="card">
-    <div id="legend">
-      <div class="legend-item"><div class="dot" style="background:#00d4ff"></div> Niedrig</div>
-      <div class="legend-item"><div class="dot" style="background:#00ff88"></div> Mittel</div>
-      <div class="legend-item"><div class="dot" style="background:#ffaa00"></div> Hoch</div>
-      <div class="legend-item"><div class="dot" style="background:#ff4444"></div> Sehr hoch</div>
+  <!-- ── Sidebar ────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+    <div id="header">
+      <h1>🛰 GeoLiDAR Scout</h1>
+      <p>iPhone 14 Pro · ARKit LiDAR · BHT Berlin · SoSe 2026</p>
     </div>
-  </div>
+
+    <!-- Tabs -->
+    <div id="tabs">
+      <button class="tab active btn-icon" id="tab3d" onclick="switchView('3d')">
+        ⬛ 3D Ansicht
+      </button>
+      <button class="tab btn-icon" id="tabMap" onclick="switchView('map')">
+        🗺 Karte
+      </button>
+    </div>
+
+    <!-- Scan auswählen -->
+    <div class="section">
+      <div class="section-title">Scan auswählen</div>
+      <select id="scanSelect">
+        <option value="example-scans/bht_campus.geojson">BHT Campus – Fassade (Beispiel)</option>
+      </select>
+      <br/><br/>
+      <button class="btn btn-primary btn-icon" onclick="loadScan()">
+        ▶ Scan laden
+      </button>
+    </div>
+
+    <!-- Darstellung -->
+    <div class="section">
+      <div class="section-title">Darstellung</div>
+      <div class="slider-row">
+        <label>Punktgröße <span id="sizeVal">3</span> px</label>
+        <input type="range" id="pointSize" min="1" max="15" value="3"
+               oninput="sizeVal.textContent=this.value; refreshLayer()"/>
+      </div>
+      <div class="slider-row">
+        <label>Transparenz <span id="opacVal">95</span>%</label>
+        <input type="range" id="opacity" min="10" max="100" value="95"
+               oninput="opacVal.textContent=this.value; refreshLayer()"/>
+      </div>
+      <div class="slider-row" style="margin-bottom:0">
+        <label>Farbmodus</label>
+        <select id="colorMode" onchange="refreshLayer()">
+          <option value="altitude">Höhe (Cyan → Rot)</option>
+          <option value="depth">Tiefe (Blau → Gelb)</option>
+          <option value="flat">Einheitlich (Blau)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 3D Steuerung -->
+    <div class="section" id="section3dControls">
+      <div class="section-title">3D Steuerung</div>
+      <button class="btn btn-secondary btn-icon" id="autoRotateBtn"
+              onclick="toggleAutoRotate()" style="margin-bottom:8px">
+        ↻ Auto-Rotation: Aus
+      </button>
+      <button class="btn btn-secondary btn-icon" onclick="resetCamera()">
+        ⊙ Kamera zurücksetzen
+      </button>
+    </div>
+
+    <!-- Stats -->
+    <div class="section">
+      <div class="section-title">Scan-Info</div>
+      <div id="stats"><span class="empty">Kein Scan geladen</span></div>
+    </div>
+
+    <!-- Legend -->
+    <div class="section">
+      <div class="section-title">Legende (Höhe)</div>
+      <div id="legend">
+        <div class="leg"><div class="dot" style="background:#00d4ff"></div> Niedrig</div>
+        <div class="leg"><div class="dot" style="background:#00ff88"></div> Mittel-tief</div>
+        <div class="leg"><div class="dot" style="background:#aaff00"></div> Mittel</div>
+        <div class="leg"><div class="dot" style="background:#ffaa00"></div> Hoch</div>
+        <div class="leg"><div class="dot" style="background:#ff4444"></div> Sehr hoch</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────────────── -->
+  <main id="main">
+    <!-- 3D View -->
+    <div id="view3d">
+      <canvas id="deck-canvas"></canvas>
+      <div id="empty-state">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+        <p>Scan auswählen und laden</p>
+      </div>
+    </div>
+    <!-- Map View -->
+    <div id="viewMap"></div>
+    <!-- Hint -->
+    <div id="hint" style="display:none">
+      <span>Drehen</span> Linksklick+Ziehen &nbsp;·&nbsp;
+      <span>Zoom</span> Scrollen &nbsp;·&nbsp;
+      <span>Verschieben</span> Rechtsklick+Ziehen
+    </div>
+  </main>
 </div>
 
 <script>
-// ── Map init (MapLibre + OpenFreeMap – kein Token nötig) ───────────────────
-const map = new maplibregl.Map({
-  container: 'map',
-  style: 'https://tiles.openfreemap.org/styles/positron',
-  center: [13.3497, 52.5450],   // BHT Berlin
-  zoom: 17,
-  pitch: 50,
-  bearing: -10,
-  antialias: true,
-});
-map.addControl(new maplibregl.NavigationControl());
+// ── State ────────────────────────────────────────────────────────────────────
+let deckgl        = null;
+let leafletMap    = null;
+let leafletMarker = null;
+let leafletCanvas = null;
+let currentView   = '3d';
+let localData     = [];    // [{position:[x,y,z], alt, depth}]
+let geoData       = [];    // [{position:[lon,lat,alt], alt}]
+let gpsAnchor     = null;  // {lat, lon, alt}
+let autoRotate    = false;
+let rotAngle      = 0;
+let animFrame     = null;
+let viewState     = {
+  target: [0, 0, 0],
+  rotationX: 25,
+  rotationOrbit: -20,
+  zoom: -1.5,
+  minZoom: -6,
+  maxZoom: 6,
+};
 
-// ── deck.gl overlay ────────────────────────────────────────────────────────
-const deckOverlay = new deck.MapboxOverlay({ layers: [] });
-map.addControl(deckOverlay);
+// ── Colour helpers ────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
 
-let currentData = [];
-
-// ── Colour by altitude ─────────────────────────────────────────────────────
-function altToColor(alt, minAlt, maxAlt) {
-  const t = Math.max(0, Math.min(1, (alt - minAlt) / (maxAlt - minAlt || 1)));
-  // Gradient: cyan → green → orange → red
-  if (t < 0.33)      return [0,   Math.round(t/0.33*212+43),  255];
-  else if (t < 0.66) return [Math.round((t-0.33)/0.33*255), 200, Math.round((1-(t-0.33)/0.33)*150)];
-  else               return [255, Math.round((1-(t-0.66)/0.34)*170), 0];
+function altToColor(val, min, max, mode) {
+  const t = Math.max(0, Math.min(1, (val - min) / (max - min || 1)));
+  if (mode === 'flat') return [88, 166, 255];
+  if (mode === 'depth') {
+    return [
+      Math.round(lerp(0, 255, t)),
+      Math.round(lerp(50, 200, t)),
+      Math.round(lerp(200, 0, t)),
+    ];
+  }
+  // altitude: cyan → green → yellow → orange → red
+  const stops = [[0,212,255], [0,255,136], [170,255,0], [255,170,0], [255,68,68]];
+  const idx   = t * (stops.length - 1);
+  const lo    = stops[Math.floor(idx)];
+  const hi    = stops[Math.min(Math.ceil(idx), stops.length-1)];
+  const f     = idx - Math.floor(idx);
+  return lo.map((c, i) => Math.round(lerp(c, hi[i], f)));
 }
 
-// ── Load scan ──────────────────────────────────────────────────────────────
+// ── Data conversion ───────────────────────────────────────────────────────────
+function processGeoJSON(json) {
+  const features = json.features;
+  if (!features.length) return;
+
+  const lons = features.map(f => f.geometry.coordinates[0]);
+  const lats = features.map(f => f.geometry.coordinates[1]);
+  const alts = features.map(f => f.geometry.coordinates[2]);
+
+  const cLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+  const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+  const cAlt = (Math.min(...alts) + Math.max(...alts)) / 2;
+
+  gpsAnchor = { lat: cLat, lon: cLon, alt: cAlt };
+
+  const MPD_LAT = 111320;
+  const MPD_LON = 111320 * Math.cos(cLat * Math.PI / 180);
+
+  // Depth: distance from camera side (Z in ARKit = depth)
+  const xs = features.map(f => (f.geometry.coordinates[0] - cLon) * MPD_LON);
+  const zs = features.map(f => -(f.geometry.coordinates[1] - cLat) * MPD_LAT);
+  const minD = Math.min(...zs), maxD = Math.max(...zs);
+
+  localData = features.map(f => {
+    const lon = f.geometry.coordinates[0];
+    const lat = f.geometry.coordinates[1];
+    const alt = f.geometry.coordinates[2];
+    const x   = (lon - cLon) * MPD_LON;
+    const y   = alt - cAlt;
+    const z   = -(lat - cLat) * MPD_LAT;
+    return { position: [x, y, z], alt, depth: z };
+  });
+
+  geoData = features.map(f => ({
+    position: f.geometry.coordinates,
+    alt: f.geometry.coordinates[2],
+  }));
+
+  // Stats
+  const spread = x => Math.abs(Math.max(...x) - Math.min(...x)).toFixed(1);
+  document.getElementById('stats').innerHTML = `
+    <b>Punkte:</b> ${features.length.toLocaleString('de-DE')}<br/>
+    <b>Breite:</b> ${spread(xs)} m &nbsp;
+    <b>Tiefe:</b> ${spread(zs)} m<br/>
+    <b>Höhendiff:</b> ${spread(alts)} m<br/>
+    <b>GPS-Anker:</b><br/>
+    &nbsp;${cLat.toFixed(6)}°N<br/>
+    &nbsp;${cLon.toFixed(6)}°E<br/>
+    <b>Status:</b> <span class="badge badge-green">✓ geladen</span>
+  `;
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('hint').style.display = 'block';
+}
+
+// ── deck.gl setup ─────────────────────────────────────────────────────────────
+function initDeck() {
+  if (deckgl) return;
+  deckgl = new deck.Deck({
+    canvas: 'deck-canvas',
+    width: '100%',
+    height: '100%',
+    views: new deck.OrbitView({ orbitAxis: 'Y' }),
+    initialViewState: viewState,
+    controller: { inertia: 300 },
+    onViewStateChange: ({ viewState: vs }) => { viewState = vs; },
+    parameters: { clearColor: [0.051, 0.067, 0.090, 1] },
+    layers: [],
+  });
+}
+
+function buildLayer() {
+  if (!localData.length) return null;
+  const alts  = localData.map(d => d.alt);
+  const minA  = Math.min(...alts), maxA = Math.max(...alts);
+  const size  = parseInt(document.getElementById('pointSize').value);
+  const opac  = parseInt(document.getElementById('opacity').value) / 100;
+  const mode  = document.getElementById('colorMode').value;
+
+  return new deck.PointCloudLayer({
+    id:               'lidar',
+    data:             localData,
+    getPosition:      d => d.position,
+    getColor:         d => [...altToColor(d.alt, minA, maxA, mode), Math.round(opac * 255)],
+    pointSize:        size,
+    coordinateSystem: deck.COORDINATE_SYSTEM.CARTESIAN,
+    pickable:         false,
+  });
+}
+
+function refreshLayer() {
+  if (!deckgl) return;
+  const layer = buildLayer();
+  if (layer) deckgl.setProps({ layers: [layer] });
+}
+
+// ── Load scan ─────────────────────────────────────────────────────────────────
 async function loadScan() {
   const url = document.getElementById('scanSelect').value;
-  document.getElementById('stats').innerHTML = 'Lädt …';
-
+  document.getElementById('stats').innerHTML = '<span class="empty">Lädt …</span>';
   try {
     const res  = await fetch(url);
     const json = await res.json();
-
-    currentData = json.features.map(f => ({
-      position: f.geometry.coordinates,   // [lon, lat, alt]
-      alt:      f.geometry.coordinates[2],
-    }));
-
-    updateLayer();
-
-    // Fly to scan
-    if (currentData.length > 0) {
-      const lons = currentData.map(d => d.position[0]);
-      const lats = currentData.map(d => d.position[1]);
-      map.flyTo({
-        center: [
-          (Math.min(...lons) + Math.max(...lons)) / 2,
-          (Math.min(...lats) + Math.max(...lats)) / 2
-        ],
-        zoom: 19, pitch: 55, duration: 1500,
-      });
-    }
+    processGeoJSON(json);
+    // Reset camera to nice default
+    resetCamera();
+    refreshLayer();
+    if (currentView === 'map') refreshMapLayer();
   } catch(e) {
     document.getElementById('stats').innerHTML =
-      `<span style="color:#f85149">Fehler beim Laden: ${e.message}</span>`;
+      `<span style="color:var(--danger)">Fehler: ${e.message}</span>`;
   }
 }
 
-// ── Update deck.gl layer ───────────────────────────────────────────────────
-function updateLayer() {
-  if (!currentData.length) return;
-
-  const alts   = currentData.map(d => d.alt);
-  const minAlt = Math.min(...alts);
-  const maxAlt = Math.max(...alts);
-  const size   = parseInt(document.getElementById('pointSize').value);
-  const opac   = parseInt(document.getElementById('opacity').value) / 100;
-
-  const layer = new deck.PointCloudLayer({
-    id:            'lidar-cloud',
-    data:          currentData,
-    getPosition:   d => d.position,
-    getColor:      d => [...altToColor(d.alt, minAlt, maxAlt), Math.round(opac * 255)],
-    pointSize:     size,
-    coordinateSystem: deck.COORDINATE_SYSTEM.LNGLAT,
-  });
-
-  deckOverlay.setProps({ layers: [layer] });
-
-  // Update stats
-  document.getElementById('stats').innerHTML = `
-    Punkte: <span>${currentData.length.toLocaleString('de-DE')}</span><br/>
-    Min. Höhe: <span>${minAlt.toFixed(1)} m</span><br/>
-    Max. Höhe: <span>${maxAlt.toFixed(1)} m</span><br/>
-    Δ Höhe: <span>${(maxAlt - minAlt).toFixed(1)} m</span>
-  `;
+// ── Camera ────────────────────────────────────────────────────────────────────
+function resetCamera() {
+  if (!deckgl) return;
+  const newState = {
+    target: [0, 0, 0],
+    rotationX: 25,
+    rotationOrbit: -20,
+    zoom: -1.5,
+    minZoom: -6,
+    maxZoom: 6,
+    transitionDuration: 600,
+  };
+  viewState = newState;
+  deckgl.setProps({ initialViewState: newState });
 }
 
-// ── Change map style ───────────────────────────────────────────────────────
-function changeStyle() {
-  const style = document.getElementById('mapStyle').value;
-  map.setStyle(style);
-  map.once('styledata', () => {
-    updateLayer();
-  });
+// ── Auto-rotation ─────────────────────────────────────────────────────────────
+function toggleAutoRotate() {
+  autoRotate = !autoRotate;
+  document.getElementById('autoRotateBtn').textContent =
+    `↻ Auto-Rotation: ${autoRotate ? 'An' : 'Aus'}`;
+  if (autoRotate) animateRotation();
+  else if (animFrame) cancelAnimationFrame(animFrame);
 }
+
+function animateRotation() {
+  if (!autoRotate || !deckgl) return;
+  rotAngle += 0.3;
+  const newState = { ...viewState, rotationOrbit: rotAngle };
+  viewState = newState;
+  deckgl.setProps({ initialViewState: { ...newState, transitionDuration: 0 } });
+  animFrame = requestAnimationFrame(animateRotation);
+}
+
+// ── View switching ────────────────────────────────────────────────────────────
+function switchView(mode) {
+  currentView = mode;
+  document.getElementById('view3d').style.display       = mode === '3d'  ? 'block' : 'none';
+  document.getElementById('viewMap').style.display      = mode === 'map' ? 'block' : 'none';
+  document.getElementById('hint').style.display         = mode === '3d' && localData.length ? 'block' : 'none';
+  document.getElementById('section3dControls').style.display = mode === '3d' ? 'block' : 'none';
+  document.getElementById('tab3d').classList.toggle('active', mode === '3d');
+  document.getElementById('tabMap').classList.toggle('active', mode === 'map');
+
+  if (mode === 'map') {
+    initLeaflet();
+    if (geoData.length) refreshMapLayer();
+  }
+}
+
+// ── Leaflet map ───────────────────────────────────────────────────────────────
+function initLeaflet() {
+  if (leafletMap) return;
+  leafletMap = L.map('viewMap', { zoomControl: true }).setView([52.5450, 13.3497], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 20,
+  }).addTo(leafletMap);
+}
+
+function refreshMapLayer() {
+  if (!leafletMap || !geoData.length) return;
+  // Remove old canvas layer
+  if (leafletCanvas) { leafletMap.removeLayer(leafletCanvas); leafletCanvas = null; }
+  if (leafletMarker) { leafletMap.removeLayer(leafletMarker); leafletMarker = null; }
+
+  // Add GPS anchor marker
+  if (gpsAnchor) {
+    leafletMarker = L.marker([gpsAnchor.lat, gpsAnchor.lon])
+      .addTo(leafletMap)
+      .bindPopup(`GPS-Anker<br/>${gpsAnchor.lat.toFixed(5)}°N, ${gpsAnchor.lon.toFixed(5)}°E`)
+      .openPopup();
+    leafletMap.setView([gpsAnchor.lat, gpsAnchor.lon], 19);
+  }
+
+  // Draw points as canvas overlay
+  const mode = document.getElementById('colorMode').value;
+  const alts = geoData.map(d => d.alt);
+  const minA = Math.min(...alts), maxA = Math.max(...alts);
+
+  leafletCanvas = L.canvas({ padding: 0.5 });
+  const pointLayer = L.layerGroup();
+
+  // Only draw subset for performance (max 800 points on map)
+  const step = Math.max(1, Math.floor(geoData.length / 800));
+  geoData.filter((_, i) => i % step === 0).forEach(d => {
+    const [r, g, b] = altToColor(d.alt, minA, maxA, mode);
+    const circle = L.circleMarker([d.position[1], d.position[0]], {
+      radius: 3,
+      fillColor: `rgb(${r},${g},${b})`,
+      fillOpacity: 0.85,
+      stroke: false,
+      renderer: leafletCanvas,
+    });
+    pointLayer.addLayer(circle);
+  });
+
+  pointLayer.addTo(leafletMap);
+  leafletCanvas.addTo(leafletMap);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  initDeck();
+  // Auto-load example scan
+  loadScan();
+});
 </script>
 </body>
 </html>
