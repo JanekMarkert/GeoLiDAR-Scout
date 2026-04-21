@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GeoLiDAR Scout – Live Demo</title>
+
+  <!-- Mapbox GL JS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+
+  <!-- deck.gl standalone build -->
+  <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #0d1117; color: #e6edf3; }
+
+    #map { width: 100vw; height: 100vh; }
+
+    /* ── HUD overlay ─────────────────────────────────────── */
+    #hud {
+      position: absolute; top: 16px; left: 16px; z-index: 10;
+      display: flex; flex-direction: column; gap: 10px;
+      max-width: 320px;
+    }
+
+    .card {
+      background: rgba(13, 17, 23, 0.88);
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 14px 16px;
+      backdrop-filter: blur(8px);
+    }
+
+    h1 { font-size: 15px; font-weight: 700; color: #58a6ff; margin-bottom: 2px; }
+    .subtitle { font-size: 11px; color: #8b949e; }
+
+    label { font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px; }
+    select, input[type=range] { width: 100%; }
+
+    select {
+      background: #161b22; color: #e6edf3;
+      border: 1px solid #30363d; border-radius: 6px;
+      padding: 6px 8px; font-size: 12px; cursor: pointer;
+    }
+
+    input[type=range] { accent-color: #58a6ff; }
+
+    .btn {
+      width: 100%; padding: 8px;
+      background: #1f6feb; color: #fff;
+      border: none; border-radius: 6px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #388bfd; }
+    .btn.secondary { background: #21262d; }
+    .btn.secondary:hover { background: #30363d; }
+
+    #stats {
+      font-size: 11px; color: #8b949e; line-height: 1.7;
+    }
+    #stats span { color: #58a6ff; font-weight: 600; }
+
+    #legend {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- ── HUD ─────────────────────────────────────────────────────── -->
+<div id="hud">
+  <div class="card">
+    <h1>🛰 GeoLiDAR Scout</h1>
+    <div class="subtitle">iPhone 14 Pro · ARKit LiDAR · BHT Berlin · SoSe 2026</div>
+  </div>
+
+  <div class="card">
+    <label>Scan auswählen</label>
+    <select id="scanSelect">
+      <option value="example-scans/bht_campus.geojson">BHT Campus – Fassade (Beispiel)</option>
+      <option value="example-scans/treppe.geojson">BHT – Treppenhaus innen (Beispiel)</option>
+    </select>
+    <br/><br/>
+    <button class="btn" onclick="loadScan()">Scan laden</button>
+  </div>
+
+  <div class="card">
+    <label>Punktgröße: <span id="sizeLabel">4</span> px</label>
+    <input type="range" id="pointSize" min="1" max="12" value="4"
+           oninput="document.getElementById('sizeLabel').textContent=this.value; updateLayer();" />
+    <br/><br/>
+    <label>Transparenz: <span id="opacLabel">90</span>%</label>
+    <input type="range" id="opacity" min="10" max="100" value="90"
+           oninput="document.getElementById('opacLabel').textContent=this.value; updateLayer();" />
+    <br/><br/>
+    <label>Karte</label>
+    <select id="mapStyle" onchange="changeStyle()">
+      <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellit + Straßen</option>
+      <option value="mapbox://styles/mapbox/dark-v11">Dunkel</option>
+      <option value="mapbox://styles/mapbox/streets-v12">Straßen</option>
+    </select>
+  </div>
+
+  <div class="card" id="stats">
+    Noch kein Scan geladen.<br/>
+    Wähle oben einen Scan aus.
+  </div>
+
+  <div class="card">
+    <div id="legend">
+      <div class="legend-item"><div class="dot" style="background:#00d4ff"></div> Niedrig</div>
+      <div class="legend-item"><div class="dot" style="background:#00ff88"></div> Mittel</div>
+      <div class="legend-item"><div class="dot" style="background:#ffaa00"></div> Hoch</div>
+      <div class="legend-item"><div class="dot" style="background:#ff4444"></div> Sehr hoch</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────────────
+// Replace with your own Mapbox token from mapbox.com (free account)
+const MAPBOX_TOKEN = 'DEIN_MAPBOX_TOKEN_HIER';
+
+mapboxgl.accessToken = MAPBOX_TOKEN;
+
+// ── Map init ───────────────────────────────────────────────────────────────
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/satellite-streets-v12',
+  center: [13.3497, 52.5450],   // BHT Berlin
+  zoom: 17,
+  pitch: 50,
+  bearing: -10,
+  antialias: true,
+});
+map.addControl(new mapboxgl.NavigationControl());
+
+// ── deck.gl overlay ────────────────────────────────────────────────────────
+const deckOverlay = new deck.MapboxOverlay({ layers: [] });
+map.addControl(deckOverlay);
+
+let currentData = [];
+
+// ── Colour by altitude ─────────────────────────────────────────────────────
+function altToColor(alt, minAlt, maxAlt) {
+  const t = Math.max(0, Math.min(1, (alt - minAlt) / (maxAlt - minAlt || 1)));
+  // Gradient: cyan → green → orange → red
+  if (t < 0.33)      return [0,   Math.round(t/0.33*212+43),  255];
+  else if (t < 0.66) return [Math.round((t-0.33)/0.33*255), 200, Math.round((1-(t-0.33)/0.33)*150)];
+  else               return [255, Math.round((1-(t-0.66)/0.34)*170), 0];
+}
+
+// ── Load scan ──────────────────────────────────────────────────────────────
+async function loadScan() {
+  const url = document.getElementById('scanSelect').value;
+  document.getElementById('stats').innerHTML = 'Lädt …';
+
+  try {
+    const res  = await fetch(url);
+    const json = await res.json();
+
+    currentData = json.features.map(f => ({
+      position: f.geometry.coordinates,   // [lon, lat, alt]
+      alt:      f.geometry.coordinates[2],
+    }));
+
+    updateLayer();
+
+    // Fly to scan
+    if (currentData.length > 0) {
+      const lons = currentData.map(d => d.position[0]);
+      const lats = currentData.map(d => d.position[1]);
+      map.flyTo({
+        center: [
+          (Math.min(...lons) + Math.max(...lons)) / 2,
+          (Math.min(...lats) + Math.max(...lats)) / 2
+        ],
+        zoom: 19, pitch: 55, duration: 1500,
+      });
+    }
+  } catch(e) {
+    document.getElementById('stats').innerHTML =
+      `<span style="color:#f85149">Fehler beim Laden: ${e.message}</span>`;
+  }
+}
+
+// ── Update deck.gl layer ───────────────────────────────────────────────────
+function updateLayer() {
+  if (!currentData.length) return;
+
+  const alts   = currentData.map(d => d.alt);
+  const minAlt = Math.min(...alts);
+  const maxAlt = Math.max(...alts);
+  const size   = parseInt(document.getElementById('pointSize').value);
+  const opac   = parseInt(document.getElementById('opacity').value) / 100;
+
+  const layer = new deck.PointCloudLayer({
+    id:            'lidar-cloud',
+    data:          currentData,
+    getPosition:   d => d.position,
+    getColor:      d => [...altToColor(d.alt, minAlt, maxAlt), Math.round(opac * 255)],
+    pointSize:     size,
+    coordinateSystem: deck.COORDINATE_SYSTEM.LNGLAT,
+  });
+
+  deckOverlay.setProps({ layers: [layer] });
+
+  // Update stats
+  document.getElementById('stats').innerHTML = `
+    Punkte: <span>${currentData.length.toLocaleString('de-DE')}</span><br/>
+    Min. Höhe: <span>${minAlt.toFixed(1)} m</span><br/>
+    Max. Höhe: <span>${maxAlt.toFixed(1)} m</span><br/>
+    Δ Höhe: <span>${(maxAlt - minAlt).toFixed(1)} m</span>
+  `;
+}
+
+// ── Change map style ───────────────────────────────────────────────────────
+function changeStyle() {
+  const style = document.getElementById('mapStyle').value;
+  map.setStyle(style);
+  map.once('styledata', () => {
+    map.addControl(deckOverlay);
+    updateLayer();
+  });
+}
+</script>
+</body>
+</html>
