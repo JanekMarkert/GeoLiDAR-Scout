@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GeoLiDAR Scout – Live Demo</title>
 
-  <!-- Mapbox GL JS -->
-  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <!-- MapLibre GL JS (Open Source, kein Token nötig) -->
+  <link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
 
   <!-- deck.gl standalone build -->
   <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
@@ -102,9 +102,9 @@
     <br/><br/>
     <label>Karte</label>
     <select id="mapStyle" onchange="changeStyle()">
-      <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellit + Straßen</option>
-      <option value="mapbox://styles/mapbox/dark-v11">Dunkel</option>
-      <option value="mapbox://styles/mapbox/streets-v12">Straßen</option>
+      <option value="https://tiles.openfreemap.org/styles/positron">Hell (OpenFreeMap)</option>
+      <option value="https://tiles.openfreemap.org/styles/dark-matter">Dunkel (OpenFreeMap)</option>
+      <option value="https://tiles.openfreemap.org/styles/liberty">Detailliert (OpenFreeMap)</option>
     </select>
   </div>
 
@@ -124,23 +124,17 @@
 </div>
 
 <script>
-// ── Config ─────────────────────────────────────────────────────────────────
-// Replace with your own Mapbox token from mapbox.com (free account)
-const MAPBOX_TOKEN = 'DEIN_MAPBOX_TOKEN_HIER';
-
-mapboxgl.accessToken = MAPBOX_TOKEN;
-
-// ── Map init ───────────────────────────────────────────────────────────────
-const map = new mapboxgl.Map({
+// ── Map init (MapLibre + OpenFreeMap – kein Token nötig) ───────────────────
+const map = new maplibregl.Map({
   container: 'map',
-  style: 'mapbox://styles/mapbox/satellite-streets-v12',
+  style: 'https://tiles.openfreemap.org/styles/positron',
   center: [13.3497, 52.5450],   // BHT Berlin
   zoom: 17,
   pitch: 50,
   bearing: -10,
   antialias: true,
 });
-map.addControl(new mapboxgl.NavigationControl());
+map.addControl(new maplibregl.NavigationControl());
 
 // ── deck.gl overlay ────────────────────────────────────────────────────────
 const deckOverlay = new deck.MapboxOverlay({ layers: [] });
@@ -226,7 +220,6 @@ function changeStyle() {
   const style = document.getElementById('mapStyle').value;
   map.setStyle(style);
   map.once('styledata', () => {
-    map.addControl(deckOverlay);
     updateLayer();
   });
 }

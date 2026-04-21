@@ -2,7 +2,7 @@
 
 > iPhone 14 Pro LiDAR-Punktwolken georeferenziert auf einer interaktiven Webkarte.
 
-**Live Demo:** [https://DEIN-USERNAME.github.io/GeoLiDAR-Scout/](https://DEIN-USERNAME.github.io/GeoLiDAR-Scout/)
+**Live Demo:** [https://janekmarkert.github.io/GeoLiDAR-Scout/](https://janekmarkert.github.io/GeoLiDAR-Scout/)
 
 ---
 
@@ -79,9 +79,9 @@ IP des Macs herausfinden: `ifconfig | grep "inet 192"`
 
 ### 3. Frontend (Live Demo)
 
-1. In `frontend/index.html` deinen Mapbox-Token eintragen (kostenlos auf mapbox.com)
-2. GitHub Pages aktivieren: *Settings → Pages → Source: main branch → /frontend*
-3. Demo-URL: `https://DEIN-USERNAME.github.io/GeoLiDAR-Scout/`
+1. In `docs/index.html` deinen Mapbox-Token eintragen (kostenlos auf mapbox.com)
+2. GitHub Pages aktivieren: *Settings → Pages → Source: main branch → /docs*
+3. Demo-URL: `https://janekmarkert.github.io/GeoLiDAR-Scout/`
 
 Die Demo läuft auch offline mit den Beispiel-Scans aus `example-scans/`.
 
